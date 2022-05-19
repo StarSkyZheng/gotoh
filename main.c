@@ -84,7 +84,6 @@ int main(int argc, char **argv) {
         printf("Feeding corrupted file formats to the program may result in undefined behaviour\n");
         return 0;
     }
-
     gzFile fp = gzdopen(fileno(stdin), "r");  
     int l;
     int nseqs=0;
@@ -106,10 +105,12 @@ int main(int argc, char **argv) {
         }
         //strncpy(seqnow.res, seq->seq.s, seq->seq.l);
         seqnow.res[seq->seq.l] = '\0';
-        seqs = (gth_Seq*)realloc(seqs, (nseqs+1)*sizeof(gth_Seq));
+        //seqs = (gth_Seq*)malloc((nseqs+1)*sizeof(gth_Seq));
         seqs[nseqs] = seqnow;
+        //printf("%s\n", seqs[nseqs].res);
         nseqs++;
     }
+    
     // load sequences
     for(int i1=0; i1<nseqs; i1++)
     {
@@ -118,6 +119,7 @@ int main(int argc, char **argv) {
             //gth_Seq seqX = gth_read_fasta(seqX_path);
             gth_Seq seqX = seqs[i1];
             if (seqX.len == 0) {
+                //printf("%s", seqX.res);
                 fprintf(stderr, "ERROR: problem reading file '%s'\n", seqX_path);
                 return -1;
             }
