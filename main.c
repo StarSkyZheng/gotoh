@@ -1,10 +1,14 @@
 #include <stdio.h>
+#include <zlib.h>  
+#include <string.h>
 #include "gotoh.h"
+#include "kseq.h"
 
 
 // default BLOSUM62 matrix from the EMBOSS package. See end of the file for its initialization.
 const gth_Sub BLOSUM62;
 
+KSEQ_INIT(gzFile, gzread)  
 
 int main(int argc, char **argv) {
 
@@ -81,113 +85,156 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-
+    gzFile fp = gzdopen(fileno(stdin), "r");  
+    int l;
+    int nseqs=0;
+    kseq_t *seq;
+    seq = kseq_init(fp);
+    gth_Seq *seqs;
+    while ((l = kseq_read(seq)) >= 0) { // STEP 4: read sequence  
+        gth_Seq seqnow;
+        char seqname[10];
+        //itoa(nseqs, seqname, 10);
+        sprintf(seqname, "%d", nseqs);
+        strncpy(seqnow.name, seqname, sizeof(seqnow.name)-1);
+        seqnow.name[sizeof(seqnow.name)-1] = '\0';
+        seqnow.len = seq->seq.l;
+        seqnow.res = (char*)malloc(seq->seq.l+1);
+        // strncpy with toupper
+        for (size_t i=0 ; i<seq->seq.l ; i++) {
+            seqnow.res[i] = toupper(seq->seq.s[i]);
+        }
+        //strncpy(seqnow.res, seq->seq.s, seq->seq.l);
+        seqnow.res[seq->seq.l] = '\0';
+        seqs = (gth_Seq*)realloc(seqs, (nseqs+1)*sizeof(gth_Seq));
+        seqs[nseqs] = seqnow;
+        nseqs++;
+    }
     // load sequences
-
-    gth_Seq seqX = gth_read_fasta(seqX_path);
-    if (seqX.len == 0) {
-        fprintf(stderr, "ERROR: problem reading file '%s'\n", seqX_path);
-        return -1;
-    }
-
-    gth_Seq seqY = gth_read_fasta(seqY_path);
-    if (seqY.len == 0) {
-        fprintf(stderr, "ERROR: problem reading file '%s'\n", seqY_path);
-        return -1;
-    }
-
-
-    // load matrix
-
-    gth_Sub matrix = BLOSUM62;
-    if (matrix_path != NULL) {
-        matrix = gth_read_matrix(matrix_path);
-        if (matrix.alpha[0] == '\0') {
-            fprintf(stderr, "ERROR: problem reading file '%s'\n", matrix_path);
-            return -1;
-        }
-    }
-    for (size_t i=0 ; i<26 ; i++) {
-        for (size_t j=0 ; j<26 ; j++) {
-            matrix.score[i][j] *= 10;
-        }
-    }
-
-
-    // create, fill, and backtrack the arrays
-
-    gth_Arr array = gth_init(seqX.len, seqY.len);
-    gth_set_sub(array, seqX.res, seqY.res, matrix.score);
-    gth_set_gap(array, (int)(gapopen*10), (int)(gapextend*10), (int)(endopen*10), (int)(endextend*10));
-    for (int k=0 ; k<3 ; k++) {
-        if (arr_paths[k] == NULL) continue;
-        FILE *file = fopen(arr_paths[k], "r");
-        if (!file) {
-            fprintf(stderr, "ERROR: problem reading file '%s'\n", arr_paths[k]);
-            gth_free(array);
-            free(seqX.res);
-            free(seqY.res);
-            return -1;
-        }
-        for (size_t i=0 ; i<=array.lenX ; i++) {
-            for (size_t j=0 ; j<=array.lenY ; j++) {
-                fscanf(file, "%d", &array.data[i][j][k]);
-                array.data[i][j][k] *= 10;
+    for(int i1=0; i1<nseqs; i1++)
+    {
+        for(int i2=i1+1; i2<nseqs; i2++)
+        {
+            //gth_Seq seqX = gth_read_fasta(seqX_path);
+            gth_Seq seqX = seqs[i1];
+            if (seqX.len == 0) {
+                fprintf(stderr, "ERROR: problem reading file '%s'\n", seqX_path);
+                return -1;
             }
-            fscanf(file, "%*[^\n]");
-        }
-        fclose(file);
-    }
-    double score = (double)(gth_align(array)) / 10;
+
+            //gth_Seq seqY = gth_read_fasta(seqY_path);
+            gth_Seq seqY = seqs[i2];
+            if (seqY.len == 0) {
+                fprintf(stderr, "ERROR: problem reading file '%s'\n", seqY_path);
+                return -1;
+            }
 
 
-    // output
+            // load matrix
 
-    if (!quiet) {
-        printf("# Needleman-Wunsch global alignment of two sequences\n");
-        printf("#\n");
-        if (arr_paths[2] == NULL) {
-            printf("# matrix file: %s\n", (matrix_path == NULL) ? "none specified, using BLOSUM62" : matrix_path);
-        }
-        else {
-            printf("# substitution scores array provided by user\n");
-        }
-        if (arr_paths[0] == NULL && arr_paths[1] == NULL) {
-            printf("# gap opening penalty: %.1f\n", gapopen);
-            printf("# gap extending penalty: %.1f\n", gapextend);
-            printf("# end gap opening penalty: %.1f\n", endopen);
-            printf("# end gap extending penalty: %.1f\n", endextend);
-        }
-        else {
-            printf("# gap scores array(s) provided by user\n");
-        }
-        printf("#\n");
-        printf("# score: %.1f\n\n", score);
-    }
-    if (dump) {
-        for (int k=0 ; k<3 ; k++) {
-            printf("# scores in array %c:\n", 'X'+k);
-            for (size_t i=0 ; i<=array.lenX ; i++) {
-                for (size_t j=0 ; j<=array.lenY ; j++) {
-                    printf("% 15d ", array.data[i][j][k]);
+            gth_Sub matrix = BLOSUM62;
+            if (matrix_path != NULL) {
+                matrix = gth_read_matrix(matrix_path);
+                if (matrix.alpha[0] == '\0') {
+                    fprintf(stderr, "ERROR: problem reading file '%s'\n", matrix_path);
+                    return -1;
                 }
-                printf("\n");
             }
-            printf("\n");
+            for (size_t i=0 ; i<26 ; i++) {
+                for (size_t j=0 ; j<26 ; j++) {
+                    matrix.score[i][j] *= 10;
+                }
+            }
+
+
+            // create, fill, and backtrack the arrays
+
+            gth_Arr array = gth_init(seqX.len, seqY.len);
+            gth_set_sub(array, seqX.res, seqY.res, matrix.score);
+            gth_set_gap(array, (int)(gapopen*10), (int)(gapextend*10), (int)(endopen*10), (int)(endextend*10));
+            for (int k=0 ; k<3 ; k++) {
+                if (arr_paths[k] == NULL) continue;
+                FILE *file = fopen(arr_paths[k], "r");
+                if (!file) {
+                    fprintf(stderr, "ERROR: problem reading file '%s'\n", arr_paths[k]);
+                    gth_free(array);
+                    free(seqX.res);
+                    free(seqY.res);
+                    return -1;
+                }
+                for (size_t i=0 ; i<=array.lenX ; i++) {
+                    for (size_t j=0 ; j<=array.lenY ; j++) {
+                        fscanf(file, "%d", &array.data[i][j][k]);
+                        array.data[i][j][k] *= 10;
+                    }
+                    fscanf(file, "%*[^\n]");
+                }
+                fclose(file);
+            }
+            double score = (double)(gth_align(array)) / 10;
+
+
+            // output
+
+            if (!quiet) {
+                printf("# Needleman-Wunsch global alignment of two sequences\n");
+                printf("#\n");
+                if (arr_paths[2] == NULL) {
+                    printf("# matrix file: %s\n", (matrix_path == NULL) ? "none specified, using BLOSUM62" : matrix_path);
+                }
+                else {
+                    printf("# substitution scores array provided by user\n");
+                }
+                if (arr_paths[0] == NULL && arr_paths[1] == NULL) {
+                    printf("# gap opening penalty: %.1f\n", gapopen);
+                    printf("# gap extending penalty: %.1f\n", gapextend);
+                    printf("# end gap opening penalty: %.1f\n", endopen);
+                    printf("# end gap extending penalty: %.1f\n", endextend);
+                }
+                else {
+                    printf("# gap scores array(s) provided by user\n");
+                }
+                printf("#\n");
+                printf("# score: %.1f\n\n", score);
+            }
+            if (dump) {
+                for (int k=0 ; k<3 ; k++) {
+                    printf("# scores in array %c:\n", 'X'+k);
+                    for (size_t i=0 ; i<=array.lenX ; i++) {
+                        for (size_t j=0 ; j<=array.lenY ; j++) {
+                            printf("% 15d ", array.data[i][j][k]);
+                        }
+                        printf("\n");
+                    }
+                    printf("\n");
+                }
+            }
+            // printf(">%s\n", seqX.name);
+            // gth_putseq(stdout, seqX.res, array.gapX);
+            // printf("\n\n>%s\n", seqY.name);
+            // gth_putseq(stdout, seqY.res, array.gapY);
+            // printf("\n");
+            int same = 0;
+            int all = 0;
+            for (int i = seqX.len - 1; i >= 0; i--) {
+                if (seqX.res[i] != '-') {
+                    all++;
+                    // check is same
+                    if (seqX.res[i] == seqY.res[i]) {
+                    same++;
+                    }
+                }
+            }
+            int meanlen = (seqX.len + seqY.len) / 2;
+            float same_percent = (float)same / meanlen * 100;
+            printf("%d\t%d\t%f\t%d\t%d\n", i1, i2, same_percent, all, same);
+
+            // cleanup
+            gth_free(array);
+            //free(seqX.res);
+            //free(seqY.res);
         }
     }
-    printf(">%s\n", seqX.name);
-    gth_putseq(stdout, seqX.res, array.gapX);
-    printf("\n\n>%s\n", seqY.name);
-    gth_putseq(stdout, seqY.res, array.gapY);
-    printf("\n");
-
-
-    // cleanup
-
-    gth_free(array);
-    free(seqX.res);
-    free(seqY.res);
     return 0;
 }
 
